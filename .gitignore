@@ -1,7 +1,5 @@
-node_modules
-lib
-test.ts
-*.bat
-*.copy
 .env
-update_cdclient.py
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

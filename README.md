@@ -1,70 +1,69 @@
-# LEGO Universe Discord Bot
+# LEGO Universe Discord Bot (Python Edition)
 
-# Overview
+A Python rewrite of the original LEGO Universe Discord bot using `discord.py` (`discord` module), while preserving the original bot command surface and user-facing behavior.
 
-1. [Prerequisites:](#prerequisites) what you need prior to setting the bot up
-2. [Setup:](#setup) instructions on how to set up the bot
-3. [Features:](#features) the bots functionality within Discord
-4. [Commands:](#commands) a short description and example for each command
+## Overview
 
-# Prerequisites
+1. [Prerequisites](#prerequisites)
+2. [Setup](#setup)
+3. [Features](#features)
+4. [Commands](#commands)
 
-1. Create a Discord Application
+## Prerequisites
 
-   View the [Official Guide](https://discord.com/developers/docs/getting-started) on how to create a Discord Application
+1. **Create a Discord Application**
 
-   \*Please note that this Discord Bot does not require any special intents
+   Follow Discord's official guide: https://discord.com/developers/docs/getting-started
 
-   Invite the bot to your server with the following link: https://discord.com/api/oauth2/authorize?client_id={YOUR_BOTS_ID}&permissions=242666032192&scope=applications.commands%20bot
+   Invite URL template:
 
-2. Have a LEGO Universe client
+   `https://discord.com/api/oauth2/authorize?client_id={YOUR_BOTS_ID}&permissions=242666032192&scope=applications.commands%20bot`
 
-   You are not required to be hosting a LEGO Universe server to host this bot
+2. **Have a LEGO Universe client data source**
 
-   All you are required is to have the `locale.xml` and the `cdclient.sqlite` files
+   You need:
 
-   The `locale.xml` can be found at `PATH_TO_LU_CLIENT\client\locale\locale.xml`
+   - `locale.xml`
+   - `cdclient.sqlite` (converted from `cdclient.fdb`)
 
-   The `cdclient.sqlite` is not found in the client. You must create it from the `cdclient.fdb` which is found in unpacked clients.
+   Typical paths/tools are unchanged from the original project.
 
-   If you are using a packed client, you can unpack just the `cdclient.fdb` using [lunpack.exe](https://lu-dev.net/LUnpack/) with the following command:
+## Setup
 
-   - Make sure the contents of `globs.txt` is just `*.fdb`, otherwise you will unpack the whole client (which takes a lot more time)
-   - Make sure `lunpack.exe` and `globs.txt` are in the same folder
+1. Clone:
 
-   ```sh
-   lunpack.exe "PATH_TO_LU_CLIENT" - g "globs.txt"
+   ```bash
+   git clone https://github.com/MasterTemple/LEGO-Universe-Discord-Bot.git
+   cd LEGO-Universe-Discord-Bot
    ```
 
-   To convert the `cdclient.fdb` to the `cdclient.sqlite`, upload the `cdclient.fdb` to https://fdb.lu-dev.net/.
+2. Configure:
 
-# Setup
+   ```bash
+   cp .env.template .env
+   ```
 
-1. Run `git clone https://github.com/MasterTemple/LEGO-Universe-Discord-Bot.git`
-2. **Configuration**
+   Fill all required values in `.env`.
 
-   Rename `.env.template` to `.env` and fill in the data from the comments provided.
+3. Install Python dependencies:
 
-   If you do not have a `cdclient.sqlite` create one from your `cdclient.fdb` at https://fdb.lu-dev.net/.
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-3. Install proper dependencies with `npm install`
-4. Transpile with `tsc --build`
+4. Start the bot:
 
-   If `tsc` is not found, install it with `npm i typescript -g` and then run `tsc --build`.
+   ```bash
+   python main.py
+   ```
 
-5. Run `./lib/index.js`
+5. Reload game data at runtime:
 
-   I would recommend using something that restarts if it crashes such as pm2
+   Use `/reload` after changing `cdclient.sqlite` or `locale.xml`.
 
-   Install pm2 with `npm install pm2 -g` and run it with `pm2 start .`
-
-   Restart with `pm2 restart all` and stop with `pm2 stop all`
-
-   If you edit the cdclient.sqlite or locale.xml, they can be reloaded without restarting the bot by using the Slash Command `/reload` in Discord.
-
-   If you edit the .env file, you just need to restart the bot.
-
-# Features
+## Features
 
 ## Autocomplete
 
@@ -105,19 +104,44 @@ The current page index is indicated between the parenthesis in the title.
 
 Page navigation can be controlled through the buttons on the bottom.
 
-####
-
 ![/buy](screenshots/buy.png)
 
 ## External Links
 
 The blue hyper-linked text will take the user to the corresponding page of hosted [LU Explorer](https://github.com/LUDevNet/lu-explorer) that is specified in the configuration.
 
-[LU Explorer](https://github.com/LUDevNet/lu-explorer) an angular.io webapp that displays LEGO Universe game data..
+## Commands
 
-# Commands
+All original command names are preserved:
 
-### `/activity`
+- `/activity`
+- `/achievement`
+- `/drop`
+- `/get`
+- `/mission`
+- `/reload`
+- `/skillitems`
+- `/vendor`
+- `/brick`
+- `/earn`
+- `/item`
+- `/npc`
+- `/report`
+- `/skills`
+- `/buy`
+- `/enemy`
+- `/level`
+- `/package`
+- `/reward`
+- `/smash`
+- `/cooldowngroup`
+- `/execute`
+- `/loottable`
+- `/preconditions`
+- `/skill`
+- `/unpack`
+
+### `/achievement`
 
 View the stats of an achievement!
 
@@ -192,8 +216,6 @@ View all missions from an NPC!
 ### `/report`
 
 Open a dialog to report anything about this bot!
-
-![/report](screenshots/report.png)
 
 ### `/skills`
 

@@ -168,7 +168,7 @@ class LUBot(commands.Bot):
 
 
 async def run_component_action(interaction: discord.Interaction, cmd: str, value: str):
-    handlers = {
+    handlers: dict[str, app_commands.Command] = {
         "item": item,
         "get": get,
         "preconditions": preconditions,
@@ -184,7 +184,9 @@ async def run_component_action(interaction: discord.Interaction, cmd: str, value
     if not handler:
         await send_text(interaction, f"Unknown component action: {cmd}", ephemeral=True)
         return
-    await handler(interaction, value)
+
+    # app_commands decorators turn these into Command objects; invoke underlying callback.
+    await handler.callback(interaction, value)
 
 
 async def object_autocomplete(interaction: discord.Interaction, current: str):

@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+import re
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _color(value: str | None, default: int = 0x3498DB) -> int:
+    if not value:
+        return default
+    raw = value.strip()
+    # Support #RRGGBB and plain integer/hex values.
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", raw):
+        return int(raw[1:], 16)
+    try:
+        return int(raw, 0)
+    except ValueError:
+        return default
 
 
 def _ids(value: str | None) -> list[int]:
@@ -36,7 +50,7 @@ settings = Settings(
     sqlite_path=os.getenv("LUDB_SQLITE_PATH", ""),
     locale_path=os.getenv("LUDB_LOCALE_PATH", ""),
     explorer_domain=os.getenv("LUDB_EXPLORER_DOMAIN", "https://explorer.lu"),
-    bot_color=int(os.getenv("LUDB_BOT_COLOR", "3447003").replace("#", "0x"), 0),
+    bot_color=_color(os.getenv("LUDB_BOT_COLOR", "3447003")),
     log_channel_id=int(os.getenv("LUDB_LOG_CHANNEL_ID", "0")),
     report_channel_id=int(os.getenv("LUDB_REPORT_CHANNEL_ID", "0")),
     lu_server_name=os.getenv("LUDB_LU_SERVER_NAME", "LEGO Universe"),

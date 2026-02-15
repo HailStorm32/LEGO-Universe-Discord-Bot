@@ -203,7 +203,7 @@ async def reward(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all packages that drop an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(package=object_autocomplete)
 async def unpack(interaction: discord.Interaction, package: str):
     await interaction.response.send_message(embed=embed("Unpack", f"Package query for {package}."))
 

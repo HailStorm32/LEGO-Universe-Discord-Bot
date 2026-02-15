@@ -27,6 +27,18 @@ def choices(rows: list[tuple[str, str]]):
     return [app_commands.Choice(name=n, value=v) for n, v in rows]
 
 
+def row_value(row: object, *keys: str, default=None):
+    if row is None:
+        return default
+    row_keys = set(row.keys())
+    for key in keys:
+        if key in row_keys:
+            value = row[key]
+            if value is not None:
+                return value
+    return default
+
+
 def embed(title: str, description: str = "") -> discord.Embed:
     e = discord.Embed(title=title, description=description, color=settings.bot_color)
     if settings.footer_text:
@@ -59,6 +71,7 @@ class LUBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         super().__init__(command_prefix="!", intents=intents)
+        self.add_listener(self.component_hint_listener, "on_interaction")
 
     async def setup_hook(self):
         cdclient.load()
@@ -93,18 +106,26 @@ class LUBot(commands.Bot):
     async def on_ready(self):
         print(f"Logged in as {self.user}")
 
-    async def on_interaction(self, interaction: discord.Interaction):
+    async def component_hint_listener(self, interaction: discord.Interaction):
         try:
-            if interaction.type is discord.InteractionType.component and interaction.data:
-                custom_id = interaction.data.get("custom_id", "")
-                m = re.match(r"([^/]+)/([^/]+)", custom_id)
-                if m:
-                    cmd, value = m.groups()
-                    command = self.tree.get_command(cmd)
-                    if command:
-                        await interaction.response.send_message(f"Use /{cmd} {value}", ephemeral=True)
-                        return
-            await super().on_interaction(interaction)
+            if interaction.type is not discord.InteractionType.component or not interaction.data:
+                return
+
+            custom_id = interaction.data.get("custom_id", "")
+            m = re.match(r"([^/]+)/([^/]+)", custom_id)
+            if not m:
+                return
+
+            cmd, value = m.groups()
+            command = self.tree.get_command(cmd)
+            if not command:
+                return
+
+            message = f"Use /{cmd} {value}"
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
         except Exception as exc:
             tb = "\n".join(traceback.format_exception(exc))
             e = embed("Error", f"```\n{tb[-3500:]}\n```")
@@ -134,7 +155,7 @@ async def skill_autocomplete(interaction: discord.Interaction, current: str):
 @app_commands.describe(item="An item in LEGO Universe")
 @app_commands.autocomplete(item=object_autocomplete)
 async def item(interaction: discord.Interaction, item: str):
-    item_id = cdclient.get_item_id(item) or (int(item) if item.isdigit() else None)
+    item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return
@@ -143,16 +164,16 @@ async def item(interaction: discord.Interaction, item: str):
     e.url = f"{settings.explorer_domain}/objects/{item_id}"
     comp = cdclient.get_item_component(item_id)
     if comp:
-        e.add_field(name="Rarity", value=str(comp["rarity"]))
-        e.add_field(name="Stack Size", value=str(comp["stack_size"]))
-        e.add_field(name="Price", value=str(comp["baseValue"]))
+        e.add_field(name="Rarity", value=str(row_value(comp, "rarity", default="Unknown")))
+        e.add_field(name="Stack Size", value=str(row_value(comp, "stack_size", "stackSize", default="Unknown")))
+        e.add_field(name="Price", value=str(row_value(comp, "baseValue", "basevalue", "currencyLOT", default="Unknown")))
     await interaction.response.send_message(embed=e, view=ItemView(item_id))
 
 
 @app_commands.command(description="View how to get an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def get(interaction: discord.Interaction, item: str):
-    item_id = cdclient.get_item_id(item) or (int(item) if item.isdigit() else None)
+    item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return
@@ -177,7 +198,7 @@ async def drop(interaction: discord.Interaction, item: str):
 @app_commands.command(description="View all missions that reward an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def earn(interaction: discord.Interaction, item: str):
-    item_id = cdclient.get_item_id(item) or (int(item) if item.isdigit() else None)
+    item_id = cdclient.get_item_id(item) or parse_id(item)
     rows = []
     if item_id:
         rows = cdclient._q(
@@ -229,7 +250,7 @@ async def vendor(interaction: discord.Interaction, vendor: str):
 @app_commands.command(description="View the stats of an enemy!")
 @app_commands.autocomplete(enemy=object_autocomplete)
 async def enemy(interaction: discord.Interaction, enemy: str):
-    enemy_id = int(enemy) if enemy.isdigit() else cdclient.get_object_id(enemy)
+    enemy_id = parse_id(enemy) or cdclient.get_object_id(enemy)
     if not enemy_id:
         await interaction.response.send_message("Enemy not found.", ephemeral=True)
         return
@@ -291,7 +312,7 @@ async def brick(interaction: discord.Interaction, brick: str):
 @app_commands.command(description="View all skills attached to an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def skills(interaction: discord.Interaction, item: str):
-    item_id = int(item) if item.isdigit() else cdclient.get_object_id(item)
+    item_id = parse_id(item) or cdclient.get_object_id(item)
     if not item_id:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return
@@ -312,7 +333,7 @@ async def skill(interaction: discord.Interaction, skill: str):
     row = cdclient.get_skill_behavior(sid)
     e = embed(f"{locale.get_skill_name(sid)} [{sid}]")
     if row:
-        e.add_field(name="Cooldown Group", value=str(row["cooldownGroup"] or 0))
+        e.add_field(name="Cooldown Group", value=str(row_value(row, "cooldownGroup", "cooldown_group", default=0)))
     await interaction.response.send_message(embed=e)
 
 
@@ -350,7 +371,7 @@ async def loottable(interaction: discord.Interaction, loottable: int):
 @app_commands.command(description="View the preconditions to use an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def preconditions(interaction: discord.Interaction, item: str):
-    item_id = cdclient.get_item_id(item) or (int(item) if item.isdigit() else None)
+    item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return

@@ -255,6 +255,34 @@ async def object_autocomplete(interaction: discord.Interaction, current: str):
     return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_objects(current)]
 
 
+async def item_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_items(current)]
+
+
+async def package_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_packages(current)]
+
+
+async def vendor_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_vendors(current)]
+
+
+async def npc_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_npcs(current)]
+
+
+async def enemy_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_enemies(current)]
+
+
+async def smash_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_smashables(current)]
+
+
+async def brick_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=r.name, value=r.value) for r in cdclient.search_bricks(current)]
+
+
 async def mission_autocomplete(interaction: discord.Interaction, current: str):
     return choices(locale.search_missions(current))
 
@@ -269,7 +297,7 @@ async def skill_autocomplete(interaction: discord.Interaction, current: str):
 
 @app_commands.command(description="View the stats of an item!")
 @app_commands.describe(item="An item in LEGO Universe")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def item(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -278,6 +306,9 @@ async def item(interaction: discord.Interaction, item: str):
     obj_name = locale.get_object_name(item_id)
     e = embed(f"{obj_name} [{item_id}]")
     e.url = f"{settings.explorer_domain}/objects/{item_id}"
+    icon_asset = cdclient.get_render_icon_asset(item_id)
+    if icon_asset:
+        e.set_thumbnail(url=f"{settings.explorer_domain}{icon_asset}")
     comp = cdclient.get_item_component(item_id)
     if comp:
         equip = row_value(comp, "equipLocation", "equip_location", default="None")
@@ -285,9 +316,10 @@ async def item(interaction: discord.Interaction, item: str):
         e.add_field(name="Rarity", value=f"Tier {row_value(comp, 'rarity', default='Unknown')}", inline=True)
         e.add_field(name="Equip Location(s)", value=str(equip), inline=True)
         e.add_field(name="Proxies", value=str(proxy), inline=True)
-        e.add_field(name="Armor", value=str(row_value(comp, "armor", default="None")), inline=True)
-        e.add_field(name="Health", value=str(row_value(comp, "life", "health", default="None")), inline=True)
-        e.add_field(name="Imagination", value=str(row_value(comp, "imagination", default="None")), inline=True)
+        dcomp = cdclient.get_destructible_component(item_id)
+        e.add_field(name="Armor", value=str(row_value(dcomp, "armor", default="None")), inline=True)
+        e.add_field(name="Health", value=str(row_value(dcomp, "life", default="None")), inline=True)
+        e.add_field(name="Imagination", value=str(row_value(dcomp, "imagination", default="None")), inline=True)
         e.add_field(name="Cost", value=str(row_value(comp, "baseValue", "basevalue", "currencyLOT", default="Unknown")), inline=True)
         e.add_field(name="Stack Size", value=str(row_value(comp, "stack_size", "stackSize", default="Unknown")), inline=True)
         e.add_field(name="Level Requirement", value=str(row_value(comp, "reqLevel", "level_requirement", default="0")), inline=True)
@@ -295,7 +327,7 @@ async def item(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View how to get an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def get(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -314,7 +346,7 @@ async def get(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all smashables that drop an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def drop(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -324,7 +356,7 @@ async def drop(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all missions that reward an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def earn(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -340,7 +372,7 @@ async def earn(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all vendors that sell an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def buy(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -350,7 +382,7 @@ async def buy(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all activities that drop an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def reward(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
@@ -360,7 +392,7 @@ async def reward(interaction: discord.Interaction, item: str):
 
 
 @app_commands.command(description="View all packages that drop an item!")
-@app_commands.autocomplete(package=object_autocomplete)
+@app_commands.autocomplete(package=package_autocomplete)
 async def unpack(interaction: discord.Interaction, package: str):
     item_id = cdclient.get_item_id(package) or parse_id(package)
     if not item_id:
@@ -370,7 +402,7 @@ async def unpack(interaction: discord.Interaction, package: str):
 
 
 @app_commands.command(description="View all items given from a package!")
-@app_commands.autocomplete(package=object_autocomplete)
+@app_commands.autocomplete(package=package_autocomplete)
 async def package(interaction: discord.Interaction, package: str):
     item_id = cdclient.get_item_id(package) or parse_id(package)
     if not item_id:
@@ -380,19 +412,19 @@ async def package(interaction: discord.Interaction, package: str):
 
 
 @app_commands.command(description="View all missions from an NPC!")
-@app_commands.autocomplete(npc=object_autocomplete)
+@app_commands.autocomplete(npc=npc_autocomplete)
 async def npc(interaction: discord.Interaction, npc: str):
     await send_embed(interaction, embed("NPC", f"Mission-giver query for {npc}."))
 
 
 @app_commands.command(description="View all items sold from a vendor!")
-@app_commands.autocomplete(vendor=object_autocomplete)
+@app_commands.autocomplete(vendor=vendor_autocomplete)
 async def vendor(interaction: discord.Interaction, vendor: str):
     await send_embed(interaction, embed("Vendor", f"Vendor listing for {vendor}."))
 
 
 @app_commands.command(description="View the stats of an enemy!")
-@app_commands.autocomplete(enemy=object_autocomplete)
+@app_commands.autocomplete(enemy=enemy_autocomplete)
 async def enemy(interaction: discord.Interaction, enemy: str):
     enemy_id = parse_id(enemy) or cdclient.get_object_id(enemy)
     if not enemy_id:
@@ -404,7 +436,7 @@ async def enemy(interaction: discord.Interaction, enemy: str):
 
 
 @app_commands.command(description="View all enemys given from a package!")
-@app_commands.autocomplete(enemy=object_autocomplete)
+@app_commands.autocomplete(enemy=smash_autocomplete)
 async def smash(interaction: discord.Interaction, enemy: str):
     await send_embed(interaction, embed("Smash", f"Smash-drop query for {enemy}."))
 
@@ -448,13 +480,13 @@ async def activity(interaction: discord.Interaction, activity: str):
 
 
 @app_commands.command(description="View the stats of a brick!")
-@app_commands.autocomplete(brick=object_autocomplete)
+@app_commands.autocomplete(brick=brick_autocomplete)
 async def brick(interaction: discord.Interaction, brick: str):
     await send_embed(interaction, embed("Brick", f"Brick details for {brick}."))
 
 
 @app_commands.command(description="View all skills attached to an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def skills(interaction: discord.Interaction, item: str):
     item_id = parse_id(item) or cdclient.get_object_id(item)
     if not item_id:
@@ -510,7 +542,7 @@ async def loottable(interaction: discord.Interaction, loottable: int):
 
 
 @app_commands.command(description="View the preconditions to use an item!")
-@app_commands.autocomplete(item=object_autocomplete)
+@app_commands.autocomplete(item=item_autocomplete)
 async def preconditions(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:

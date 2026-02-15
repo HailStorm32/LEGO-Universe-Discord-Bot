@@ -3,7 +3,18 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+
 from .locale import LocaleXML
+
+
+def format_icon_path(icon: str | None) -> str | None:
+    if not icon:
+        return None
+    icon = icon.replace("..\\..\\", "/lu-res/")
+    icon = icon.replace("\\", "/")
+    icon = icon.replace(" ", "%20")
+    icon = icon.replace(".dds", ".png").replace(".DDS", ".png")
+    return icon.lower()
 
 
 @dataclass
@@ -104,3 +115,82 @@ class CDClient:
 
     def get_level_rows(self, level: int):
         return self._q("SELECT * FROM LevelProgressionLookup WHERE id=?", (level,)).fetchall()
+
+    def get_render_icon_asset(self, object_id: int) -> str | None:
+        row = self._q("SELECT component_id FROM ComponentsRegistry WHERE id=? AND component_type=2 LIMIT 1", (object_id,)).fetchone()
+        if not row:
+            return None
+        render = self._q("SELECT icon_asset, IconID FROM RenderComponent WHERE id=? LIMIT 1", (row["component_id"],)).fetchone()
+        if not render:
+            return None
+        asset = render["icon_asset"] if "icon_asset" in render.keys() else None
+        if asset:
+            return format_icon_path(asset)
+        icon_id = render["IconID"] if "IconID" in render.keys() else None
+        if icon_id:
+            icon = self._q("SELECT IconPath FROM Icons WHERE IconID=? LIMIT 1", (icon_id,)).fetchone()
+            if icon:
+                return format_icon_path(icon["IconPath"])
+        return None
+
+    def get_destructible_component(self, object_id: int) -> sqlite3.Row | None:
+        row = self._q("SELECT component_id FROM ComponentsRegistry WHERE id=? and component_type=7", (object_id,)).fetchone()
+        if not row:
+            return None
+        return self._q("SELECT * FROM DestructibleComponent WHERE id=?", (row["component_id"],)).fetchone()
+
+    def search_items(self, query: str) -> list[SearchRow]:
+        return self.search_objects(query, component_type=11)
+
+    def search_packages(self, query: str) -> list[SearchRow]:
+        return self.search_objects(query, component_type=53)
+
+    def search_vendors(self, query: str) -> list[SearchRow]:
+        return self.search_objects(query, component_type=16)
+
+    def search_npcs(self, query: str) -> list[SearchRow]:
+        rows = self._q(
+            """
+            SELECT DISTINCT o.id, o.name FROM Objects o
+            JOIN MissionNPCComponent m ON m.id=o.id
+            WHERE o.name LIKE ? LIMIT 25
+            """,
+            (f"%{query}%",),
+        ).fetchall()
+        return [SearchRow(f"{r['name']} [{r['id']}]", str(r['id'])) for r in rows]
+
+    def search_enemies(self, query: str) -> list[SearchRow]:
+        rows = self._q(
+            """
+            SELECT DISTINCT o.id, o.name FROM Objects o
+            JOIN ComponentsRegistry c ON c.id=o.id AND c.component_type=7
+            JOIN DestructibleComponent d ON d.id=c.component_id
+            WHERE d.isnpc=1 AND o.name LIKE ? LIMIT 25
+            """,
+            (f"%{query}%",),
+        ).fetchall()
+        return [SearchRow(f"{r['name']} [{r['id']}]", str(r['id'])) for r in rows]
+
+    def search_smashables(self, query: str) -> list[SearchRow]:
+        rows = self._q(
+            """
+            SELECT DISTINCT o.id, o.name FROM Objects o
+            JOIN ComponentsRegistry c ON c.id=o.id AND c.component_type=7
+            JOIN DestructibleComponent d ON d.id=c.component_id
+            WHERE d.isSmashable=1 AND o.name LIKE ? LIMIT 25
+            """,
+            (f"%{query}%",),
+        ).fetchall()
+        return [SearchRow(f"{r['name']} [{r['id']}]", str(r['id'])) for r in rows]
+
+    def search_bricks(self, query: str) -> list[SearchRow]:
+        rows = self._q(
+            """
+            SELECT DISTINCT o.id, o.name FROM Objects o
+            JOIN BrickIDTable b ON b.NDObjectID=o.id
+            WHERE o.name LIKE ? LIMIT 25
+            """,
+            (f"%{query}%",),
+        ).fetchall()
+        return [SearchRow(f"{r['name']} [{r['id']}]", str(r['id'])) for r in rows]
+

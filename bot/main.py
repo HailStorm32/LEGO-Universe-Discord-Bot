@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import traceback
 from typing import Iterable
 
 import discord
@@ -46,6 +45,24 @@ def embed(title: str, description: str = "") -> discord.Embed:
     return e
 
 
+async def send_embed(interaction: discord.Interaction, embed_obj: discord.Embed, view: discord.ui.View | None = None, ephemeral: bool = False):
+    if interaction.type is discord.InteractionType.component:
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed_obj, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed_obj, view=view)
+        return
+
+    await interaction.response.send_message(embed=embed_obj, view=view, ephemeral=ephemeral)
+
+
+async def send_text(interaction: discord.Interaction, text: str, ephemeral: bool = False):
+    if interaction.response.is_done():
+        await interaction.followup.send(text, ephemeral=ephemeral)
+    else:
+        await interaction.response.send_message(text, ephemeral=ephemeral)
+
+
 def to_chunks(lines: Iterable[str], size: int = 1000) -> list[str]:
     out, cur = [], ""
     for line in lines:
@@ -60,18 +77,61 @@ def to_chunks(lines: Iterable[str], size: int = 1000) -> list[str]:
     return out or ["None"]
 
 
+class ItemActionButton(discord.ui.Button):
+    def __init__(self, cmd: str, item_id: int, row: int):
+        super().__init__(label=cmd.title(), custom_id=f"{cmd}/{item_id}", row=row)
+        self.cmd = cmd
+        self.item_id = item_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await run_component_action(interaction, self.cmd, str(self.item_id))
+
+
 class ItemView(discord.ui.View):
     def __init__(self, item_id: int):
-        super().__init__(timeout=None)
-        for cmd in ["item", "get", "preconditions", "package", "skills", "earn", "drop", "unpack", "reward", "buy"]:
-            self.add_item(discord.ui.Button(label=cmd.title(), custom_id=f"{cmd}/{item_id}"))
+        super().__init__(timeout=600)
+        buttons = ["item", "get", "preconditions", "package", "skills", "earn", "drop", "unpack", "reward", "buy"]
+        for i, cmd in enumerate(buttons):
+            self.add_item(ItemActionButton(cmd, item_id, row=0 if i < 5 else 1))
+
+
+class PagedListView(discord.ui.View):
+    def __init__(self, title: str, lines: list[str], page_size: int = 10):
+        super().__init__(timeout=600)
+        self.title = title
+        self.lines = lines or ["No data."]
+        self.page_size = page_size
+        self.page = 0
+
+    @property
+    def page_count(self) -> int:
+        return max(1, (len(self.lines) + self.page_size - 1) // self.page_size)
+
+    def make_embed(self) -> discord.Embed:
+        start = self.page * self.page_size
+        end = start + self.page_size
+        chunk = self.lines[start:end]
+        e = embed(f"{self.title} ({self.page + 1}/{self.page_count})")
+        e.description = "\n".join(chunk) if chunk else "No data."
+        return e
+
+    @discord.ui.button(label="Previous Page", style=discord.ButtonStyle.secondary, row=4)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page > 0:
+            self.page -= 1
+        await interaction.response.edit_message(embed=self.make_embed(), view=self)
+
+    @discord.ui.button(label="Next Page", style=discord.ButtonStyle.secondary, row=4)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page < self.page_count - 1:
+            self.page += 1
+        await interaction.response.edit_message(embed=self.make_embed(), view=self)
 
 
 class LUBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         super().__init__(command_prefix="!", intents=intents)
-        self.add_listener(self.component_hint_listener, "on_interaction")
 
     async def setup_hook(self):
         cdclient.load()
@@ -106,33 +166,25 @@ class LUBot(commands.Bot):
     async def on_ready(self):
         print(f"Logged in as {self.user}")
 
-    async def component_hint_listener(self, interaction: discord.Interaction):
-        try:
-            if interaction.type is not discord.InteractionType.component or not interaction.data:
-                return
 
-            custom_id = interaction.data.get("custom_id", "")
-            m = re.match(r"([^/]+)/([^/]+)", custom_id)
-            if not m:
-                return
-
-            cmd, value = m.groups()
-            command = self.tree.get_command(cmd)
-            if not command:
-                return
-
-            message = f"Use /{cmd} {value}"
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
-        except Exception as exc:
-            tb = "\n".join(traceback.format_exception(exc))
-            e = embed("Error", f"```\n{tb[-3500:]}\n```")
-            if interaction.response.is_done():
-                await interaction.followup.send(embed=e, ephemeral=True)
-            else:
-                await interaction.response.send_message(embed=e, ephemeral=True)
+async def run_component_action(interaction: discord.Interaction, cmd: str, value: str):
+    handlers = {
+        "item": item,
+        "get": get,
+        "preconditions": preconditions,
+        "package": package,
+        "skills": skills,
+        "earn": earn,
+        "drop": drop,
+        "unpack": unpack,
+        "reward": reward,
+        "buy": buy,
+    }
+    handler = handlers.get(cmd)
+    if not handler:
+        await send_text(interaction, f"Unknown component action: {cmd}", ephemeral=True)
+        return
+    await handler(interaction, value)
 
 
 async def object_autocomplete(interaction: discord.Interaction, current: str):
@@ -157,7 +209,7 @@ async def skill_autocomplete(interaction: discord.Interaction, current: str):
 async def item(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
-        await interaction.response.send_message("Item not found.", ephemeral=True)
+        await send_text(interaction, "Item not found.", ephemeral=True)
         return
     obj_name = locale.get_object_name(item_id)
     e = embed(f"{obj_name} [{item_id}]")
@@ -167,7 +219,7 @@ async def item(interaction: discord.Interaction, item: str):
         e.add_field(name="Rarity", value=str(row_value(comp, "rarity", default="Unknown")))
         e.add_field(name="Stack Size", value=str(row_value(comp, "stack_size", "stackSize", default="Unknown")))
         e.add_field(name="Price", value=str(row_value(comp, "baseValue", "basevalue", "currencyLOT", default="Unknown")))
-    await interaction.response.send_message(embed=e, view=ItemView(item_id))
+    await send_embed(interaction, e, view=ItemView(item_id))
 
 
 @app_commands.command(description="View how to get an item!")
@@ -175,7 +227,7 @@ async def item(interaction: discord.Interaction, item: str):
 async def get(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
-        await interaction.response.send_message("Item not found.", ephemeral=True)
+        await send_text(interaction, "Item not found.", ephemeral=True)
         return
     e = embed(f"How to get {locale.get_object_name(item_id)} [{item_id}]")
     checks = {
@@ -186,13 +238,13 @@ async def get(interaction: discord.Interaction, item: str):
     for name, q in checks.items():
         hit = cdclient._q(q, (item_id, item_id, item_id, item_id) if q.count("?") == 4 else (item_id,)).fetchone()
         e.add_field(name=name, value="Yes" if hit else "No", inline=True)
-    await interaction.response.send_message(embed=e, view=ItemView(item_id))
+    await send_embed(interaction, e, view=ItemView(item_id))
 
 
 @app_commands.command(description="View all smashables that drop an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def drop(interaction: discord.Interaction, item: str):
-    await interaction.response.send_message(embed=embed("Drop", f"Use LU Explorer link: {settings.explorer_domain}/objects/{item}"))
+    await send_embed(interaction, embed("Drop", f"Use LU Explorer link: {settings.explorer_domain}/objects/{item}"))
 
 
 @app_commands.command(description="View all missions that reward an item!")
@@ -205,46 +257,45 @@ async def earn(interaction: discord.Interaction, item: str):
             "SELECT id FROM Missions WHERE reward_item1=? OR reward_item2=? OR reward_item3=? OR reward_item4=? LIMIT 50",
             (item_id, item_id, item_id, item_id),
         ).fetchall()
-    e = embed("Earn")
-    for c in to_chunks([f"{locale.get_mission_name(r['id'])} [{r['id']}]" for r in rows]):
-        e.add_field(name="Missions", value=c, inline=False)
-    await interaction.response.send_message(embed=e)
+    lines = [f"{locale.get_mission_name(r['id'])} [{r['id']}]" for r in rows]
+    view = PagedListView("Earn", lines)
+    await send_embed(interaction, view.make_embed(), view=view)
 
 
 @app_commands.command(description="View all vendors that sell an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def buy(interaction: discord.Interaction, item: str):
-    await interaction.response.send_message(embed=embed("Buy", "Vendor query available from local CDClient data."))
+    await send_embed(interaction, embed("Buy", "Vendor query available from local CDClient data."))
 
 
 @app_commands.command(description="View all activities that drop an item!")
 @app_commands.autocomplete(item=object_autocomplete)
 async def reward(interaction: discord.Interaction, item: str):
-    await interaction.response.send_message(embed=embed("Reward", "Activity reward output available from local CDClient data."))
+    await send_embed(interaction, embed("Reward", "Activity reward output available from local CDClient data."))
 
 
 @app_commands.command(description="View all packages that drop an item!")
 @app_commands.autocomplete(package=object_autocomplete)
 async def unpack(interaction: discord.Interaction, package: str):
-    await interaction.response.send_message(embed=embed("Unpack", f"Package query for {package}."))
+    await send_embed(interaction, embed("Unpack", f"Package query for {package}."))
 
 
 @app_commands.command(description="View all items given from a package!")
 @app_commands.autocomplete(package=object_autocomplete)
 async def package(interaction: discord.Interaction, package: str):
-    await interaction.response.send_message(embed=embed("Package", f"Package content query for {package}."))
+    await send_embed(interaction, embed("Package", f"Package content query for {package}."))
 
 
 @app_commands.command(description="View all missions from an NPC!")
 @app_commands.autocomplete(npc=object_autocomplete)
 async def npc(interaction: discord.Interaction, npc: str):
-    await interaction.response.send_message(embed=embed("NPC", f"Mission-giver query for {npc}."))
+    await send_embed(interaction, embed("NPC", f"Mission-giver query for {npc}."))
 
 
 @app_commands.command(description="View all items sold from a vendor!")
 @app_commands.autocomplete(vendor=object_autocomplete)
 async def vendor(interaction: discord.Interaction, vendor: str):
-    await interaction.response.send_message(embed=embed("Vendor", f"Vendor listing for {vendor}."))
+    await send_embed(interaction, embed("Vendor", f"Vendor listing for {vendor}."))
 
 
 @app_commands.command(description="View the stats of an enemy!")
@@ -252,17 +303,17 @@ async def vendor(interaction: discord.Interaction, vendor: str):
 async def enemy(interaction: discord.Interaction, enemy: str):
     enemy_id = parse_id(enemy) or cdclient.get_object_id(enemy)
     if not enemy_id:
-        await interaction.response.send_message("Enemy not found.", ephemeral=True)
+        await send_text(interaction, "Enemy not found.", ephemeral=True)
         return
     e = embed(f"{locale.get_object_name(enemy_id)} [{enemy_id}]")
     e.url = f"{settings.explorer_domain}/objects/{enemy_id}"
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View all enemys given from a package!")
 @app_commands.autocomplete(enemy=object_autocomplete)
 async def smash(interaction: discord.Interaction, enemy: str):
-    await interaction.response.send_message(embed=embed("Smash", f"Smash-drop query for {enemy}."))
+    await send_embed(interaction, embed("Smash", f"Smash-drop query for {enemy}."))
 
 
 @app_commands.command(description="View the stats of a mission!")
@@ -270,15 +321,15 @@ async def smash(interaction: discord.Interaction, enemy: str):
 async def mission(interaction: discord.Interaction, mission: str):
     mission_id = parse_id(mission)
     if not mission_id:
-        await interaction.response.send_message("Mission not found.", ephemeral=True)
+        await send_text(interaction, "Mission not found.", ephemeral=True)
         return
     row = cdclient.get_mission(mission_id)
     if not row:
-        await interaction.response.send_message("Mission not found.", ephemeral=True)
+        await send_text(interaction, "Mission not found.", ephemeral=True)
         return
     e = embed(f"{locale.get_mission_name(mission_id)} [{mission_id}]")
     e.description = locale.get_mission_description(mission_id)
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View the stats of an achievement!")
@@ -286,27 +337,27 @@ async def mission(interaction: discord.Interaction, mission: str):
 async def achievement(interaction: discord.Interaction, achievement: str):
     mission_id = parse_id(achievement)
     if not mission_id:
-        await interaction.response.send_message("Achievement not found.", ephemeral=True)
+        await send_text(interaction, "Achievement not found.", ephemeral=True)
         return
     row = cdclient.get_mission(mission_id)
     if not row:
-        await interaction.response.send_message("Achievement not found.", ephemeral=True)
+        await send_text(interaction, "Achievement not found.", ephemeral=True)
         return
     e = embed(f"{locale.get_mission_name(mission_id)} [{mission_id}]")
     e.description = locale.get_mission_description(mission_id)
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View all rewards given from an activity!")
 @app_commands.autocomplete(activity=activity_autocomplete)
 async def activity(interaction: discord.Interaction, activity: str):
-    await interaction.response.send_message(embed=embed("Activity", f"Activity rewards for {activity}."))
+    await send_embed(interaction, embed("Activity", f"Activity rewards for {activity}."))
 
 
 @app_commands.command(description="View the stats of a brick!")
 @app_commands.autocomplete(brick=object_autocomplete)
 async def brick(interaction: discord.Interaction, brick: str):
-    await interaction.response.send_message(embed=embed("Brick", f"Brick details for {brick}."))
+    await send_embed(interaction, embed("Brick", f"Brick details for {brick}."))
 
 
 @app_commands.command(description="View all skills attached to an item!")
@@ -314,13 +365,12 @@ async def brick(interaction: discord.Interaction, brick: str):
 async def skills(interaction: discord.Interaction, item: str):
     item_id = parse_id(item) or cdclient.get_object_id(item)
     if not item_id:
-        await interaction.response.send_message("Item not found.", ephemeral=True)
+        await send_text(interaction, "Item not found.", ephemeral=True)
         return
     rows = cdclient._q("SELECT skillID FROM ObjectSkills WHERE objectTemplate=? LIMIT 50", (item_id,)).fetchall()
-    e = embed("Skills")
-    for c in to_chunks([f"{locale.get_skill_name(r['skillID'])} [{r['skillID']}]" for r in rows]):
-        e.add_field(name="Attached Skills", value=c, inline=False)
-    await interaction.response.send_message(embed=e)
+    lines = [f"{locale.get_skill_name(r['skillID'])} [{r['skillID']}]" for r in rows]
+    view = PagedListView("Skills", lines)
+    await send_embed(interaction, view.make_embed(), view=view)
 
 
 @app_commands.command(description="View the stats of a skill!")
@@ -328,13 +378,13 @@ async def skills(interaction: discord.Interaction, item: str):
 async def skill(interaction: discord.Interaction, skill: str):
     sid = parse_id(skill)
     if not sid:
-        await interaction.response.send_message("Skill not found.", ephemeral=True)
+        await send_text(interaction, "Skill not found.", ephemeral=True)
         return
     row = cdclient.get_skill_behavior(sid)
     e = embed(f"{locale.get_skill_name(sid)} [{sid}]")
     if row:
         e.add_field(name="Cooldown Group", value=str(row_value(row, "cooldownGroup", "cooldown_group", default=0)))
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View all items that have a skill!")
@@ -342,13 +392,12 @@ async def skill(interaction: discord.Interaction, skill: str):
 async def skillitems(interaction: discord.Interaction, skill: str):
     sid = parse_id(skill)
     if not sid:
-        await interaction.response.send_message("Skill not found.", ephemeral=True)
+        await send_text(interaction, "Skill not found.", ephemeral=True)
         return
     rows = cdclient.get_items_with_skill(sid)
-    e = embed("Skill Items")
-    for c in to_chunks([f"{r['name']} [{r['id']}]" for r in rows]):
-        e.add_field(name="Items", value=c, inline=False)
-    await interaction.response.send_message(embed=e)
+    lines = [f"{r['name']} [{r['id']}]" for r in rows]
+    view = PagedListView("Skill Items", lines)
+    await send_embed(interaction, view.make_embed(), view=view)
 
 
 @app_commands.command(description="View the skills in a cooldowngroup!")
@@ -356,16 +405,15 @@ async def cooldowngroup(interaction: discord.Interaction, group: int):
     rows = cdclient._q("SELECT skillID FROM SkillBehavior WHERE cooldownGroup=? LIMIT 100", (group,)).fetchall()
     e = embed(f"Cooldown Group {group}")
     e.description = "\n".join([f"{locale.get_skill_name(r['skillID'])} [{r['skillID']}]" for r in rows]) or "No skills found."
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View all items in a loot table!")
 async def loottable(interaction: discord.Interaction, loottable: int):
     rows = cdclient.get_loot_table_items(loottable)
-    e = embed(f"Loot Table {loottable}")
-    for c in to_chunks([f"{r['name'] or 'Unknown'} [{r['id']}] - {r['chance']}%" for r in rows]):
-        e.add_field(name="Loot", value=c, inline=False)
-    await interaction.response.send_message(embed=e)
+    lines = [f"{r['name'] or 'Unknown'} [{r['id']}] - {r['chance']}%" for r in rows]
+    view = PagedListView(f"Loot Table {loottable}", lines)
+    await send_embed(interaction, view.make_embed(), view=view)
 
 
 @app_commands.command(description="View the preconditions to use an item!")
@@ -373,12 +421,12 @@ async def loottable(interaction: discord.Interaction, loottable: int):
 async def preconditions(interaction: discord.Interaction, item: str):
     item_id = cdclient.get_item_id(item) or parse_id(item)
     if not item_id:
-        await interaction.response.send_message("Item not found.", ephemeral=True)
+        await send_text(interaction, "Item not found.", ephemeral=True)
         return
     ids = cdclient.get_preconditions(item_id)
     e = embed(f"Preconditions for {locale.get_object_name(item_id)}")
     e.description = "\n".join([f"[{i}] {locale.get_precondition(i)}" for i in ids]) or "None"
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="View stats about a level in LEGO Universe!")
@@ -386,13 +434,13 @@ async def level(interaction: discord.Interaction, level: int):
     rows = cdclient.get_level_rows(level)
     e = embed(f"Level {level}")
     e.description = "\n".join([", ".join([f"{k}={r[k]}" for k in r.keys()]) for r in rows])[:3900] or "No data."
-    await interaction.response.send_message(embed=e)
+    await send_embed(interaction, e)
 
 
 @app_commands.command(description="Reload the data from the cdclient.sqlite and locale.xml!")
 async def reload(interaction: discord.Interaction):
     cdclient.reload()
-    await interaction.response.send_message(embed=embed("Reload", "Reload complete."), ephemeral=True)
+    await send_embed(interaction, embed("Reload", "Reload complete."), ephemeral=True)
 
 
 @app_commands.command(description="Open a dialog to report anything about this bot!")

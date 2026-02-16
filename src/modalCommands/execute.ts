@@ -1,7 +1,20 @@
 import { slashCommands } from '..';
+import { executeRoleId } from '../config';
+import { MessageFlags } from 'discord.js';
 import { error } from '../error';
 import { Embed } from '../types/Embed';
 import { ModalCommand } from '../types/ModalCommand';
+
+function hasExecuteAccess(interaction: any): boolean {
+  if (!executeRoleId) return true;
+  if (!interaction?.inGuild?.()) return false;
+
+  const roles = interaction.member?.roles;
+  if (roles?.cache?.has) return roles.cache.has(executeRoleId);
+
+  const roleIds = roles?._roles || roles;
+  return Array.isArray(roleIds) ? roleIds.includes(executeRoleId) : false;
+}
 
 interface Instruction {
   command: string;
@@ -13,6 +26,11 @@ export default {
   run: async function (
     interaction,
     cdclient) {
+
+    if (!hasExecuteAccess(interaction)) {
+      await interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      return;
+    }
 
     let input = interaction.fields.getTextInputValue("input");
 
@@ -42,8 +60,12 @@ export default {
       for (let parameter of parameters) {
         let options = [{ name: "execute", type: 3, value: parameter } as any];
         try {
-          interaction.customId = `${command}/${parameter}/0`;
-          await slashCommands.get(command).run(interaction, options, cdclient);
+          const syntheticInteraction = Object.assign(
+            Object.create(Object.getPrototypeOf(interaction)),
+            interaction,
+            { customId: `${command}/${parameter}/0` },
+          );
+          await slashCommands.get(command).run(syntheticInteraction, options, cdclient);
         } catch (err) {
           if (interaction.isMessageComponent() || interaction.isChatInputCommand()) {
             error(interaction, err);

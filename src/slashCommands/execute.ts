@@ -1,5 +1,17 @@
-import { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { executeRoleId } from '../config';
 import { SlashCommand } from '../types/SlashCommand';
+
+function hasExecuteAccess(interaction: any): boolean {
+  if (!executeRoleId) return true;
+  if (!interaction?.inGuild?.()) return false;
+
+  const roles = interaction.member?.roles;
+  if (roles?.cache?.has) return roles.cache.has(executeRoleId);
+
+  const roleIds = roles?._roles || roles;
+  return Array.isArray(roleIds) ? roleIds.includes(executeRoleId) : false;
+}
 
 export default {
   name: 'execute',
@@ -9,6 +21,11 @@ export default {
     interaction,
     options,
     cdclient) {
+
+    if (!hasExecuteAccess(interaction)) {
+      await interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      return;
+    }
 
     const modal = new ModalBuilder()
       .setCustomId('execute')
@@ -22,7 +39,7 @@ export default {
     modal.addComponents(description);
 
     if (interaction.isChatInputCommand() || interaction.isMessageComponent()) await interaction.showModal(modal);
-    if (interaction.isModalSubmit()) await interaction.reply({ content: "Nice try", ephemeral: true });
+    if (interaction.isModalSubmit()) await interaction.reply({ content: "Nice try", flags: MessageFlags.Ephemeral });
 
 
   },
